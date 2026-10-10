@@ -36,6 +36,7 @@ use std::ptr;
 use std::sync::OnceLock;
 
 use crate::mxc_common::api_set::is_api_set_implemented;
+use crate::mxc_common::models::ContainerPolicy;
 use crate::mxc_common::string_util;
 use windows::Win32::Foundation::{GetLastError, ERROR_INSUFFICIENT_BUFFER, HANDLE, HMODULE};
 use windows::Win32::System::LibraryLoader::{
@@ -628,8 +629,9 @@ impl SecurityEnvironmentApi {
         &self,
         specification: &[u8],
         flags: u32,
+        policy: Option<&ContainerPolicy>,
     ) -> Result<ProcessSecurityEnvironment, CreationError> {
-        self.create_internal(specification, flags, self.get_last_policy_result)
+        self.create_internal(specification, flags, self.get_last_policy_result, policy)
     }
 
     /// Create a process security environment from a PSEC FlatBuffer
@@ -642,7 +644,7 @@ impl SecurityEnvironmentApi {
         sandbox_specification: &[u8],
         flags: u32,
     ) -> Result<ProcessSecurityEnvironment, LearningModeError> {
-        self.create_internal(sandbox_specification, flags, None)
+        self.create_internal(sandbox_specification, flags, None, None)
             .map_err(|error| error.cause)
     }
 
@@ -651,6 +653,7 @@ impl SecurityEnvironmentApi {
         sandbox_specification: &[u8],
         flags: u32,
         get_last_policy_result: Option<PfnGetLastProcessSecurityEnvironmentPolicyResult>,
+        policy: Option<&ContainerPolicy>,
     ) -> Result<ProcessSecurityEnvironment, CreationError> {
         let mut env = HANDLE(ptr::null_mut());
         let spec_len = u32::try_from(sandbox_specification.len()).map_err(|_| {
@@ -685,7 +688,7 @@ impl SecurityEnvironmentApi {
                 if let Some(get_result) = get_last_policy_result {
                     // The snapshot belongs to this native thread. Retrieve it before
                     // logging, callbacks, another CPSE call, or environment cleanup.
-                    error.diagnostic = Some(policy_failure_diagnostic(get_result));
+                    error.diagnostic = Some(policy_failure_diagnostic(get_result, policy));
                 }
             }
             return Err(error);
@@ -701,6 +704,7 @@ impl SecurityEnvironmentApi {
 
 fn policy_failure_diagnostic(
     get_result: PfnGetLastProcessSecurityEnvironmentPolicyResult,
+    policy: Option<&ContainerPolicy>,
 ) -> String {
     let mut details = vec![RawPolicyDetail::default(); MAX_DETAILS];
     let mut storage = vec![0u16; MAX_RESOURCE_CHARS];
@@ -722,7 +726,7 @@ fn policy_failure_diagnostic(
         };
         return format!("Creation-policy diagnostics unavailable: {reason}{error}.");
     }
-    result.diagnostic(&details, &storage)
+    result.diagnostic(&details, &storage, policy)
 }
 
 /// Whether the process security-environment API supports `capability`.
@@ -762,8 +766,9 @@ pub(crate) fn create(
 pub(crate) fn create_with_diagnostics(
     specification: &[u8],
     flags: u32,
+    policy: Option<&ContainerPolicy>,
 ) -> Result<ProcessSecurityEnvironment, CreationError> {
-    SecurityEnvironmentApi::load()?.create_with_diagnostics(specification, flags)
+    SecurityEnvironmentApi::load()?.create_with_diagnostics(specification, flags, policy)
 }
 
 fn query_supported_minor_version_with(

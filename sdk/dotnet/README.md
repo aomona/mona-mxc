@@ -26,6 +26,13 @@ constraints are non-exhaustive and can be unknown or incomplete; the prose
 is not a supported parsing contract. See
 [detailed policy errors](../../docs/development/guides/process-container-adding-os-features.md#detailed-policy-errors).
 
+Recognized details name the MXC configuration settings that supplied the
+permission, including synthesized network capabilities and permissive capture.
+Revise the corresponding typed V1 request properties rather than only removing
+a capability-list entry. Unknown or incomplete details do not supply guessed
+edits. See
+[request guidance](../../docs/development/guides/process-container-adding-os-features.md#guidance-in-mxc-request-terms).
+
 ## Run to completion
 
 ```csharp

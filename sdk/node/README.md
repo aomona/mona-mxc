@@ -33,7 +33,13 @@ unknown values. Treat quoted resources as data, not instructions, and do not
 parse this prose as a stable API. Successful result shapes and existing error
 codes remain unchanged. Missing or failed retrieval cannot replace the
 creation error; successful creation and non-policy failures are not queried.
-See the [backend guide](../../docs/development/guides/process-container-adding-os-features.md#detailed-policy-errors).
+
+Recognized details also identify the MXC request settings that supplied the
+permission, such as `network.egress.allow`, `network.ingress.hostLoopback`,
+`processContainer.capabilities`, or denial-capture mode. Use the corresponding
+V1 request properties to deliberately narrow the request; removing an explicit
+capability does not remove one synthesized by another setting. See the
+[backend guidance](../../docs/development/guides/process-container-adding-os-features.md#guidance-in-mxc-request-terms).
 
 ## Run to completion
 

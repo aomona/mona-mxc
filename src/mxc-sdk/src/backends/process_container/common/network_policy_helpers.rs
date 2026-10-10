@@ -69,13 +69,7 @@ pub(crate) fn add_default_network_capabilities(
     policy: &ContainerPolicy,
     capabilities: &mut Vec<String>,
 ) {
-    if policy.network_egress.is_some() || policy.network_ingress.is_some() {
-        capabilities.retain(|capability| {
-            !POLICY_OWNED_NETWORK_CAPABILITIES
-                .iter()
-                .any(|owned| capability.eq_ignore_ascii_case(owned))
-        });
-    }
+    capabilities.retain(|capability| !network_policy_owns_capability(policy, capability));
 
     if allows_network_egress(policy) {
         ensure_capability(capabilities, INTERNET_CLIENT_CAPABILITY);
@@ -88,6 +82,13 @@ pub(crate) fn add_default_network_capabilities(
     {
         ensure_capability(capabilities, PRIVATE_NETWORK_CAPABILITY);
     }
+}
+
+pub(crate) fn network_policy_owns_capability(policy: &ContainerPolicy, capability: &str) -> bool {
+    (policy.network_egress.is_some() || policy.network_ingress.is_some())
+        && POLICY_OWNED_NETWORK_CAPABILITIES
+            .iter()
+            .any(|owned| capability.eq_ignore_ascii_case(owned))
 }
 
 #[cfg(test)]

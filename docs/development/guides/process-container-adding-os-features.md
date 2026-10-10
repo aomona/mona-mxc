@@ -74,7 +74,14 @@ The getter's HRESULT describes retrieval, not creation. Refusal outcomes are
 `unknown` (0), `blocked` (1) and `evaluationFailed` (2); the OS retains only the
 last two. Successful creations and non-policy failures are not queried.
 
-The native V1 contract has a 48/40-byte header and a 56-byte detail stride.
+The native V1 contract has a 48/40-byte header and a 48-byte detail stride.
+Each detail carries `ResourceCharsWritten`; only the aggregate header carries
+`ResourceCharsRequired`. The public flags are `HasActionableDetails` (`0x1`),
+`ResourceComplete` (`0x2`), and `ResourceUnavailable` (`0x4`). The current
+contract has capability-removal, filesystem-access and path-count remedies.
+There are no UI, Win32k, integrity-level, bitmask or boolean detail codes.
+This unpublished native contract was revised in place; use matching OS and
+MXC builds. MXC does not decode the preceding prototype layout.
 MXC allocates its maximum 64 details and 32,768 UTF-16 resource characters once,
 after the policy refusal. Retrieval copies the cached snapshot without another
 RPC, policy evaluation or creation attempt. It does not consume the snapshot.
@@ -82,6 +89,39 @@ The returned batch is non-exhaustive, even when it is not full. An unconditional
 non-actionable failure may have no details. The added policy text is bounded to
 256 KiB; every returned fixed detail is retained, while resource-text
 truncation is marked as incomplete.
+
+#### Guidance in MXC request terms
+
+When the returned detail has understood discriminators, actionable flags and
+any required complete resource, MXC uses the effective request to explain which
+configuration settings requested the permission. This applies to both ordinary
+and capture-enabled creation, including run-to-completion and streaming SDK
+calls. The guidance accompanies the original native detail and does not edit
+the request.
+
+| Native constraint | MXC guidance |
+|---|---|
+| Remove `internetClient` | Set `network.egress.default` to `deny` and remove the `network.egress.allow` rules that request egress. If only the default or only rules enabled it, the message identifies that source. |
+| Remove `privateNetworkClientServer` | Set `network.ingress.default` to `deny`. A configured ProcessContainer proxy requires this capability, so also omit `runtimeConfig.networkProxy` and its `processContainer.network.allowedProxyPeer` setting rather than leaving an invalid proxy request. |
+| Remove `networkLoopback` | Set `network.ingress.hostLoopback` to `deny`, even when the OS synthesized the capability from native ingress rather than MXC listing it explicitly. An identity-less proxy needs host-loopback access; omit it or deliberately choose a supported identity-scoped deployment. |
+| Remove an explicitly requested capability | Remove the matching `processContainer.capabilities` entry when it remains effective. Supported request parsing supplies deny-default directional network policy even when `network` is omitted; PSEC construction filters its owned network-capability entries. MXC does not attribute those filtered entries as sources. |
+| Remove `permissiveLearningMode` | Change `processContainer.captureDenials.mode` from `allow` to `block`, or omit capture; also disable audit if used. When normalization does not retain the specific audit entry point, the message says so rather than inventing one. Reserved learning-mode capabilities are controlled by their dedicated settings, not the capability list. |
+| Restrict filesystem access | Review `filesystem.readwritePaths` or `filesystem.readonlyPaths`, including covering ancestors and aliases. Narrow/remove a grant, move an RW grant to RO, or add the indicated RO/deny exception while checking more-specific grants. Keep existing restrictive exceptions. |
+| Reduce path count | Reduce the combined entries in `filesystem.readwritePaths`, `filesystem.readonlyPaths` and `filesystem.deniedPaths` to the returned maximum. `processContainer.filesystem.enumeratePaths` is not counted by this native remedy. Do not satisfy the budget by broadening grants or dropping restrictive exceptions. |
+
+Use the corresponding typed V1 SDK request properties when calling an SDK;
+the field paths in the message are MXC configuration paths. Multiple settings
+can request the same capability: changing only an explicit list entry may not
+remove the effective permission. Narrower network destinations or a proxy do
+not make a policy-forbidden network capability acceptable.
+
+Unknown outcomes, flags, codes, contradictory values, unavailable/invalid
+resource text, or a permission with no known request source do not produce a
+guessed configuration edit. Filesystem resources remain comparison witnesses:
+aliases and more-specific rules can change which authored grant is responsible.
+Never use a displayed resource marked truncated as a configuration path.
+The suggested revision is not a replacement policy or a promise that the next
+call will succeed.
 
 MXC never applies these actions, changes the submitted policy, or retries a
 policy refusal. A caller may feed the message to an LLM or present it to a user,
@@ -110,6 +150,24 @@ stable machine-readable contract, infer an exemption from absent details, or
 blindly retry later launch/wait failures. Resource values can be sensitive;
 forward them only to an appropriate recipient. Mixed CLI guest output is not
 an authenticated source for automated decisions.
+
+#### Validation scope
+
+On October 10, 2026, the matching native x64 test VM passed 62 CLI, Node and
+.NET cases plus 11 direct native snapshot checks. The matrix covered effective
+capability sources, proxy dependencies, permissive capture, restrictive
+filesystem revisions, path-count limits, default denial and caller-authored
+compliant requests. Managed `Run`, `RunAsync`, `Spawn` and `SpawnAsync`, and
+Node `run` and `spawn`, retained the original refusal and MXC guidance.
+The native probe verified the 48-byte detail layout, same-thread ownership,
+non-consuming retrieval, short-buffer behavior and snapshot clearing.
+
+The SDK streaming checks used supported Node 24.21.0 without replacing the
+system runtime. Administrative policy and owned workloads were restored;
+the supplied OS and policy-tool binaries were not changed. This is x64
+runtime evidence only, not x86, ARM64, non-Windows or interactive UI coverage.
+Focused local tests additionally cover unknown/malformed details and bounded,
+escaped diagnostic text.
 
 ## Step-by-step
 

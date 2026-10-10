@@ -28,6 +28,13 @@ incomplete data is not an instruction to guess a repair. Diagnostic prose is
 not a stable parsing API. See the
 [backend guide](../../docs/development/guides/process-container-adding-os-features.md#detailed-policy-errors).
 
+Recognized details also explain which MXC configuration settings requested the
+permission. Use their corresponding typed V1 request properties to narrow the
+call, including network or capture settings that synthesize capabilities.
+Unknown/incomplete details do not become guessed edits; filesystem suggestions
+preserve deny/read-only exceptions. See
+[request guidance](../../docs/development/guides/process-container-adding-os-features.md#guidance-in-mxc-request-terms).
+
 ## Run to completion and spawn
 
 Build a `ContainerRequest` directly, then choose captured output with `run` or

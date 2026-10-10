@@ -38,8 +38,8 @@ use crate::mxc_common::error::WxcError;
 use crate::mxc_common::log_symbols::EMOJI_SECTION;
 use crate::mxc_common::logger::Logger;
 use crate::mxc_common::models::{
-    CaptureDenialsErrorOutput, CaptureDenialsOutput, ContainmentBackend, ExecutionRequest,
-    FailurePhase, SandboxOutputMetadata, ScriptResponse,
+    CaptureDenialsErrorOutput, CaptureDenialsOutput, ContainerPolicy, ContainmentBackend,
+    ExecutionRequest, FailurePhase, SandboxOutputMetadata, ScriptResponse,
 };
 use crate::mxc_common::process_util::{
     create_std_pipes, InterruptiblePipeReader, OwnedHandle, PipeReadCanceller, PipeWriter,
@@ -210,6 +210,7 @@ trait CaptureSessionFactory: Send + Sync {
         &self,
         sandbox_specification: &[u8],
         flags: u32,
+        policy: &ContainerPolicy,
     ) -> Result<Box<dyn CaptureSessionOps>, CreationError>;
 }
 
@@ -220,8 +221,10 @@ impl CaptureSessionFactory for RealCaptureSessionFactory {
         &self,
         sandbox_specification: &[u8],
         flags: u32,
+        policy: &ContainerPolicy,
     ) -> Result<Box<dyn CaptureSessionOps>, CreationError> {
-        let environment = secenv::create_with_diagnostics(sandbox_specification, flags)?;
+        let environment =
+            secenv::create_with_diagnostics(sandbox_specification, flags, Some(policy))?;
         CaptureSession::begin_with_environment(environment)
             .map(|session| Box::new(session) as Box<dyn CaptureSessionOps>)
             .map_err(Into::into)
@@ -788,10 +791,11 @@ impl BaseContainerRunner {
         {
             let psec_spec = process_security_environment_spec.as_slice();
             if capture_denials.is_some() {
-                match self
-                    .capture_factory
-                    .begin(psec_spec, PROCESS_SECURITY_ENVIRONMENT_FLAG_NONE)
-                {
+                match self.capture_factory.begin(
+                    psec_spec,
+                    PROCESS_SECURITY_ENVIRONMENT_FLAG_NONE,
+                    &request.policy,
+                ) {
                     Ok(session) => {
                         let _ = writeln!(
                             logger,
@@ -827,6 +831,7 @@ impl BaseContainerRunner {
                 let result = secenv::create_with_diagnostics(
                     psec_spec,
                     PROCESS_SECURITY_ENVIRONMENT_FLAG_NONE,
+                    Some(&request.policy),
                 );
                 match result {
                     Ok(environment) => {
@@ -2255,6 +2260,7 @@ mod tests {
             &self,
             _sandbox_specification: &[u8],
             _flags: u32,
+            _policy: &ContainerPolicy,
         ) -> Result<Box<dyn CaptureSessionOps>, CreationError> {
             self.begin_calls.fetch_add(1, Ordering::SeqCst);
             if let Some((function, code)) = self.begin_error {
@@ -2659,10 +2665,11 @@ mod tests {
         });
         let runner = BaseContainerRunner::with_capture_factory(factory.clone());
 
-        let error = match runner
-            .capture_factory
-            .begin(&[], PROCESS_SECURITY_ENVIRONMENT_FLAG_NONE)
-        {
+        let error = match runner.capture_factory.begin(
+            &[],
+            PROCESS_SECURITY_ENVIRONMENT_FLAG_NONE,
+            &ContainerPolicy::default(),
+        ) {
             Ok(_) => panic!("fake begin must fail"),
             Err(error) => error,
         };
@@ -2686,7 +2693,11 @@ mod tests {
         let runner = BaseContainerRunner::with_capture_factory(factory.clone());
         let session = runner
             .capture_factory
-            .begin(&[], PROCESS_SECURITY_ENVIRONMENT_FLAG_NONE)
+            .begin(
+                &[],
+                PROCESS_SECURITY_ENVIRONMENT_FLAG_NONE,
+                &ContainerPolicy::default(),
+            )
             .expect("fake begin");
 
         let error = session.finish(None).expect_err("fake finish must fail");
