@@ -44,7 +44,7 @@ fn flags(handle: &impl AsRawHandle) -> u32 {
     flags
 }
 
-fn available(reader: &File) -> u32 {
+fn available(reader: &File) -> windows::core::Result<u32> {
     let mut count = 0;
     unsafe {
         PeekNamedPipe(
@@ -55,9 +55,8 @@ fn available(reader: &File) -> u32 {
             Some(&mut count),
             None,
         )
-    }
-    .unwrap();
-    count
+    }?;
+    Ok(count)
 }
 
 #[test]
@@ -220,6 +219,10 @@ fn selected_ipc_and_launch_lock_reach_processcontainer_without_unselected_handle
         timeout_ms: Some(30_000),
         ..ContainerRequest::new(command)
     };
+    eprintln!(
+        "ProcessContainer probe: {:?}",
+        mxc_sdk::v1::probe(Some(&request)).unwrap()
+    );
     let mut process = spawn_with_inherited_handles(
         request.clone(),
         Default::default(),
@@ -238,7 +241,22 @@ fn selected_ipc_and_launch_lock_reach_processcontainer_without_unselected_handle
     drop(output);
     drop(lock);
     let deadline = Instant::now() + Duration::from_secs(30);
-    while available(&host_output) < 5 {
+    loop {
+        let count = match available(&host_output) {
+            Ok(count) => count,
+            Err(error) => {
+                let output = process.wait_with_output().unwrap();
+                panic!(
+                    "child ended before IPC readiness: {error}; {:?}; stdout: {}; stderr: {}",
+                    output.outcome,
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+        };
+        if count >= 5 {
+            break;
+        }
         assert!(Instant::now() < deadline, "child did not signal readiness");
         std::thread::sleep(Duration::from_millis(10));
     }
@@ -259,7 +277,7 @@ fn selected_ipc_and_launch_lock_reach_processcontainer_without_unselected_handle
     let mut reply = String::new();
     host_output.read_to_string(&mut reply).unwrap();
     assert_eq!(reply, "reply:hello");
-    assert_eq!(available(&unselected_reader), 0);
+    assert_eq!(available(&unselected_reader).unwrap(), 0);
     assert!(std::fs::OpenOptions::new()
         .read(true)
         .write(true)
@@ -313,5 +331,5 @@ fn helper_process_does_not_inherit_unselected_handles() {
         mxc_sdk::mxc_common::process_util::run_process_with_captured_output(None, &command, 10_000)
             .unwrap();
     assert_eq!(output.exit_code, 0, "{}", output.stderr);
-    assert_eq!(available(&reader), 0);
+    assert_eq!(available(&reader).unwrap(), 0);
 }
