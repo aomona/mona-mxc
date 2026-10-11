@@ -40,7 +40,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          cargo +1.93 build -p wxc-host-prep --locked
+          cargo +1.93 build -p wxc_host_prep --locked
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & ./target/debug/wxc-host-prep.exe prepare-system-drive
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
