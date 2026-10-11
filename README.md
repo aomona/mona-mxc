@@ -1,4 +1,27 @@
-# Microsoft eXecution Container (MXC)
+# Mona MXC (mona-mxc)
+
+> **Audience:** MXC consumers and developers
+
+This is the Enderpin-oriented fork of Microsoft's MXC, based on upstream
+`c6f301d53a1430c4c921a05c57af838f7392348f`. It is not an official Microsoft
+distribution. Upstream copyright notices and the MIT license are retained.
+
+The Rust SDK adds `v1::spawn_with_inherited_fds` for explicitly owned IPC/file
+descriptors. Its initial implementation supports **macOS Seatbelt direct
+execution only**; unsupported backends reject a nonempty descriptor list.
+Descriptors retain their numbers, avoiding remapping collisions with standard
+streams and launcher locks. Parent descriptors must remain close-on-exec;
+inheritance is enabled only in the sandbox child. This API is not a JSON
+configuration option. Credential handling remains the caller's responsibility;
+callers must authorize the capabilities provided by each channel.
+The policy hash includes the number of inherited descriptors, not their
+capabilities or identities; it must not be used to approve channel access.
+
+Linux descriptor inheritance, Windows handle inheritance, and Enderpin's engine
+switch are not implemented by this initial fork change. Package/crate names
+remain `mxc-sdk` / `mxc_sdk` for compatibility; `mona-mxc` names the repository.
+
+## Upstream MXC
 
 MXC is a **sandboxed code execution system** for running untrusted code
 (model output, plugins, and tools) on Windows, Linux, and macOS. It provides

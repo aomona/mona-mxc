@@ -47,6 +47,10 @@
 //! WSLC and Windows Sandbox configuration is hashed at the `wslc` and
 //! `windowsSandbox` root keys.
 //!
+//! Mona's inherited descriptors add their count, not their process-local
+//! numbers or underlying capabilities. Callers must authorize those channels
+//! independently; this hash cannot approve descriptor access.
+//!
 //! `ContainerPolicy::network_proxy` is `#[serde(skip)]`, so the proxy's
 //! credential-bearing URL cannot reach the hash through the blanket policy
 //! serialization even by accident; the enforcement-relevant parts (enabled,
@@ -204,6 +208,8 @@ fn hash_canonical_json(canonical: &str) -> String {
 /// that keeps the allow-list from silently falling behind the model.
 fn policy_projection(request: &ExecutionRequest) -> Value {
     let ExecutionRequest {
+        #[cfg(unix)]
+        inherited_fds,
         // External contract provenance is diagnostics/telemetry attribution,
         // not enforcement.
         source_contract: _excluded_source_contract,
@@ -238,6 +244,15 @@ fn policy_projection(request: &ExecutionRequest) -> Value {
     } = request;
 
     let mut root = Map::new();
+
+    // Descriptor numbers are not stable identities; callers authorize channel semantics.
+    #[cfg(unix)]
+    if !inherited_fds.is_empty() {
+        root.insert(
+            "inheritedDescriptorCount".into(),
+            inherited_fds.len().into(),
+        );
+    }
 
     root.insert(
         "containment".into(),

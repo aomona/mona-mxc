@@ -202,6 +202,8 @@ pub use core_modules::plm;
 pub use core_modules::process_security_environment_spec;
 
 mod configs;
+#[cfg(unix)]
+mod inherited_fds;
 mod options;
 mod policy;
 mod sandbox;
@@ -330,6 +332,29 @@ pub mod v1 {
     /// `take_*` is drained and discarded by [`wait`](MxcProcess::wait).
     pub fn spawn(request: ContainerRequest, options: SpawnOptions) -> Result<MxcProcess, Error> {
         let prepared = crate::policy::prepare_creation_request(&request, options.telemetry)?;
+        crate::mxc_engine::spawn_execution_request(&prepared.inner).map(MxcProcess::new)
+    }
+
+    /// Spawn with explicitly owned descriptors in addition to standard streams.
+    ///
+    /// Each descriptor keeps its number in the child; pass that number to the
+    /// workload separately. Descriptors must be close-on-exec in the parent.
+    /// Ownership is retained through spawning, and the parent's flags are never
+    /// changed. Only macOS Seatbelt direct execution is currently supported;
+    /// other backends reject a nonempty list rather than silently dropping it.
+    ///
+    /// These are capabilities: an inherited socket or file can grant access
+    /// beyond path/network policy. Only pass channels intended for the workload.
+    /// This Rust-only extension is not available through JSON, Node, or .NET.
+    #[cfg(unix)]
+    pub fn spawn_with_inherited_fds(
+        request: ContainerRequest,
+        options: SpawnOptions,
+        inherited_fds: Vec<std::sync::Arc<std::os::fd::OwnedFd>>,
+    ) -> Result<MxcProcess, Error> {
+        let mut prepared = crate::policy::prepare_creation_request(&request, options.telemetry)?;
+        prepared.inner.inherited_fds = inherited_fds;
+        crate::inherited_fds::validate(&prepared.inner)?;
         crate::mxc_engine::spawn_execution_request(&prepared.inner).map(MxcProcess::new)
     }
 

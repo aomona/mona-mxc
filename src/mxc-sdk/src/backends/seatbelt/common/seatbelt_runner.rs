@@ -378,6 +378,7 @@ fn spawn_exec(
         },
         logger,
     )?;
+    crate::inherited_fds::configure(&mut command, &request.inherited_fds);
 
     // Always start from a cleared environment so untrusted sandboxed code never
     // inherits the host's env. When a proxy is active its HTTP_PROXY/HTTPS_PROXY

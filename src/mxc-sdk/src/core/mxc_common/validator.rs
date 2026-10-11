@@ -146,6 +146,9 @@ pub fn validate_state_aware_network_policy_support(
 
 /// Validates non-backend-specific parts of the request (e.g. non-empty script).
 pub fn validate_common(request: &ExecutionRequest) -> Result<(), ScriptResponse> {
+    #[cfg(unix)]
+    crate::inherited_fds::validate(request)
+        .map_err(|error| ScriptResponse::rejected(&error.to_string()))?;
     if request.script_code.is_empty() {
         return Err(ScriptResponse::error("Script content must not be empty."));
     }

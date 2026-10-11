@@ -1599,6 +1599,8 @@ fn normalize_common_request_ir(
     }
 
     Ok(ExecutionRequest {
+        #[cfg(unix)]
+        inherited_fds: Vec::new(),
         source_contract: Some(source_contract),
         container_id,
         env,
