@@ -7,18 +7,22 @@ This is the Enderpin-oriented fork of Microsoft's MXC, based on upstream
 distribution. Upstream copyright notices and the MIT license are retained.
 
 The Rust SDK adds `v1::spawn_with_inherited_fds` for explicitly owned IPC/file
-descriptors. Its initial implementation supports **macOS Seatbelt direct
-execution only**; unsupported backends reject a nonempty descriptor list.
+descriptors on **Linux Bubblewrap and macOS Seatbelt direct execution**.
+Windows **ProcessContainer (AppContainer / BaseContainer)** uses
+`v1::spawn_with_inherited_handles`. Unsupported backends reject a nonempty list.
 Descriptors retain their numbers, avoiding remapping collisions with standard
 streams and launcher locks. Parent descriptors must remain close-on-exec;
-inheritance is enabled only in the sandbox child. This API is not a JSON
+inheritance is enabled only in the sandbox child. Windows handles must already
+be inheritable; the explicit handle list restricts inheritance to the selected
+handles and standard streams without changing the parent's flags. Callers must
+coordinate concurrent Windows launches that inherit handles without a list.
+These APIs are not JSON
 configuration option. Credential handling remains the caller's responsibility;
 callers must authorize the capabilities provided by each channel.
-The policy hash includes the number of inherited descriptors, not their
+The policy hash includes the number of inherited descriptors/handles, not their
 capabilities or identities; it must not be used to approve channel access.
 
-Linux descriptor inheritance, Windows handle inheritance, and Enderpin's engine
-switch are not implemented by this initial fork change. Package/crate names
+Enderpin's engine switch is not implemented by this fork change. Package/crate names
 remain `mxc-sdk` / `mxc_sdk` for compatibility; `mona-mxc` names the repository.
 
 ## Upstream MXC

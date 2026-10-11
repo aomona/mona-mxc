@@ -149,6 +149,9 @@ pub fn validate_common(request: &ExecutionRequest) -> Result<(), ScriptResponse>
     #[cfg(unix)]
     crate::inherited_fds::validate(request)
         .map_err(|error| ScriptResponse::rejected(&error.to_string()))?;
+    #[cfg(windows)]
+    crate::inherited_handles::validate(request)
+        .map_err(|error| ScriptResponse::rejected(&error.to_string()))?;
     if request.script_code.is_empty() {
         return Err(ScriptResponse::error("Script content must not be empty."));
     }

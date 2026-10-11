@@ -836,6 +836,7 @@ impl AppContainerScriptRunner {
         // child to capture pipes that the streaming handle reads from.
         let pipe_mode =
             capture || !std::io::stdout().is_terminal() || !std::io::stderr().is_terminal();
+        let inherit_handles = pipe_mode || !request.inherited_handles.is_empty();
 
         if pipe_mode {
             if capture {
@@ -850,7 +851,7 @@ impl AppContainerScriptRunner {
         let attr_count = compute_attr_count(
             request.policy.least_privilege_mode,
             request.policy.ui.disable,
-            pipe_mode,
+            inherit_handles,
         );
 
         // Lifetime spans the attribute list and CreateProcessW:
@@ -960,7 +961,14 @@ impl AppContainerScriptRunner {
         // the child to fresh capture pipes that the streaming handle reads from
         // (the `mxc` library path). Handle list for
         // PROC_THREAD_ATTRIBUTE_HANDLE_LIST. Must outlive CreateProcessW.
-        let mut handle_list: Vec<HANDLE> = Vec::new();
+        let mut handle_list: Vec<HANDLE> = request
+            .inherited_handles
+            .iter()
+            .map(|handle| {
+                use std::os::windows::io::AsRawHandle;
+                HANDLE(handle.as_raw_handle())
+            })
+            .collect();
 
         let h_stdin;
         let h_stdout;
@@ -1039,7 +1047,14 @@ impl AppContainerScriptRunner {
             handle_list.push(h_stdin);
             handle_list.push(h_stdout);
             handle_list.push(h_stderr);
-
+        } else {
+            h_stdin = HANDLE::default();
+            h_stdout = HANDLE::default();
+            h_stderr = HANDLE::default();
+        }
+        if inherit_handles {
+            handle_list.sort_unstable_by_key(|handle| handle.0 as usize);
+            handle_list.dedup();
             // 4. HANDLE_LIST -- restrict which handles the child inherits.
             unsafe {
                 UpdateProcThreadAttribute(
@@ -1055,10 +1070,6 @@ impl AppContainerScriptRunner {
                     WxcError::Process(format!("UpdateProcThreadAttribute(HANDLE_LIST): {}", e))
                 })?;
             }
-        } else {
-            h_stdin = HANDLE::default();
-            h_stdout = HANDLE::default();
-            h_stderr = HANDLE::default();
         }
 
         // --- Setup STARTUPINFOEXW ---
@@ -1157,7 +1168,7 @@ impl AppContainerScriptRunner {
                 Some(PWSTR(cmd_line_wide.as_mut_ptr())),
                 None,
                 None,
-                pipe_mode, // bInheritHandles: true only in pipe mode (restricted by HANDLE_LIST)
+                inherit_handles, // restricted by HANDLE_LIST
                 creation_flags,
                 Some(env_ptr),
                 working_dir_pcwstr,

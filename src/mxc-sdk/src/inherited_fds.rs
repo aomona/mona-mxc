@@ -1,9 +1,7 @@
 // Licensed under the MIT License.
 
 use std::os::fd::AsRawFd;
-#[cfg(target_os = "macos")]
 use std::os::fd::OwnedFd;
-#[cfg(any(target_os = "macos", test))]
 use std::sync::Arc;
 
 use crate::mxc_common::models::{ContainmentBackend, ExecutionRequest, LaunchMethod};
@@ -13,16 +11,18 @@ pub(crate) fn validate(request: &ExecutionRequest) -> Result<(), Error> {
     if request.inherited_fds.is_empty() {
         return Ok(());
     }
-    if !cfg!(target_os = "macos")
-        || request.containment != ContainmentBackend::Seatbelt
-        || request
-            .seatbelt
-            .as_ref()
-            .is_some_and(|config| config.launch_method != LaunchMethod::Exec)
-    {
+    let supported = (cfg!(target_os = "linux")
+        && request.containment == ContainmentBackend::Bubblewrap)
+        || (cfg!(target_os = "macos")
+            && request.containment == ContainmentBackend::Seatbelt
+            && !request
+                .seatbelt
+                .as_ref()
+                .is_some_and(|config| config.launch_method != LaunchMethod::Exec));
+    if !supported {
         return Err(Error::new(
             ErrorCode::UnsupportedContainment,
-            "inherited descriptors currently require macOS Seatbelt direct execution",
+            "inherited descriptors require Linux Bubblewrap or macOS Seatbelt direct execution",
         ));
     }
     let mut seen = std::collections::HashSet::new();
@@ -55,7 +55,7 @@ pub(crate) fn validate(request: &ExecutionRequest) -> Result<(), Error> {
     Ok(())
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 pub(crate) fn configure(command: &mut std::process::Command, fds: &[Arc<OwnedFd>]) {
     use std::os::unix::process::CommandExt;
 

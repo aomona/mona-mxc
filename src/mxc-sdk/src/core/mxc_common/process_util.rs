@@ -501,8 +501,11 @@ pub fn run_process_with_captured_output(
     timeout_ms: u32,
 ) -> Result<CapturedOutput, WxcError> {
     use windows::Win32::System::Threading::{
-        CreateProcessW, GetExitCodeProcess, TerminateProcess, CREATE_NO_WINDOW,
-        PROCESS_INFORMATION, STARTF_USESTDHANDLES, STARTUPINFOW,
+        CreateProcessW, DeleteProcThreadAttributeList, GetExitCodeProcess,
+        InitializeProcThreadAttributeList, TerminateProcess, UpdateProcThreadAttribute,
+        CREATE_NO_WINDOW, EXTENDED_STARTUPINFO_PRESENT, LPPROC_THREAD_ATTRIBUTE_LIST,
+        PROCESS_INFORMATION, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, STARTF_USESTDHANDLES,
+        STARTUPINFOEXW, STARTUPINFOW,
     };
     use windows_core::{PCWSTR, PWSTR};
 
@@ -515,12 +518,51 @@ pub fn run_process_with_captured_output(
         create_std_pipes(true).map_err(|e| WxcError::Process(format!("stderr pipe: {}", e)))?;
 
     let si = STARTUPINFOW {
-        cb: std::mem::size_of::<STARTUPINFOW>() as u32,
+        cb: std::mem::size_of::<STARTUPINFOEXW>() as u32,
         dwFlags: STARTF_USESTDHANDLES,
         hStdInput: _stdin_read.get(),
         hStdOutput: stdout_write.get(),
         hStdError: stderr_write.get(),
         ..Default::default()
+    };
+
+    // Helper processes must not inherit caller-owned IPC channels.
+    let mut byte_count = 0;
+    unsafe {
+        let _ = InitializeProcThreadAttributeList(None, 1, None, &mut byte_count);
+    }
+    if byte_count == 0 {
+        return Err(WxcError::Process(
+            "failed to size handle attribute list".into(),
+        ));
+    }
+    let mut storage = vec![0usize; byte_count.div_ceil(std::mem::size_of::<usize>())];
+    let list = LPPROC_THREAD_ATTRIBUTE_LIST(storage.as_mut_ptr().cast());
+    unsafe { InitializeProcThreadAttributeList(Some(list), 1, None, &mut byte_count) }
+        .map_err(|e| WxcError::Process(format!("InitializeProcThreadAttributeList: {e}")))?;
+    struct AttributeListGuard(LPPROC_THREAD_ATTRIBUTE_LIST);
+    impl Drop for AttributeListGuard {
+        fn drop(&mut self) {
+            unsafe { DeleteProcThreadAttributeList(self.0) };
+        }
+    }
+    let _guard = AttributeListGuard(list);
+    let handles = [_stdin_read.get(), stdout_write.get(), stderr_write.get()];
+    unsafe {
+        UpdateProcThreadAttribute(
+            list,
+            0,
+            PROC_THREAD_ATTRIBUTE_HANDLE_LIST as usize,
+            Some(handles.as_ptr().cast()),
+            std::mem::size_of_val(&handles),
+            None,
+            None,
+        )
+    }
+    .map_err(|e| WxcError::Process(format!("UpdateProcThreadAttribute(HANDLE_LIST): {e}")))?;
+    let si = STARTUPINFOEXW {
+        StartupInfo: si,
+        lpAttributeList: list,
     };
 
     let mut cmd_wide = string_util::to_wide(command_line);
@@ -541,10 +583,10 @@ pub fn run_process_with_captured_output(
             None,
             None,
             true,
-            CREATE_NO_WINDOW,
+            CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT,
             None,
             PCWSTR::null(),
-            &si,
+            &si.StartupInfo,
             &mut pi,
         )
         .map_err(|e| WxcError::Process(format!("CreateProcessW failed: {}", e)))?;

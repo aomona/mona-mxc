@@ -949,6 +949,10 @@ pub struct ExecutionRequest {
     #[cfg(unix)]
     #[serde(skip)]
     pub inherited_fds: Vec<std::sync::Arc<std::os::fd::OwnedFd>>,
+    /// In-process capabilities; never accepted from or emitted into JSON.
+    #[cfg(windows)]
+    #[serde(skip)]
+    pub inherited_handles: Vec<std::sync::Arc<std::os::windows::io::OwnedHandle>>,
     /// Exact external contract that produced this request.
     ///
     /// Direct typed SDK construction has no external contract attribution.

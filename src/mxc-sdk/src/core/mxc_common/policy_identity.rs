@@ -210,6 +210,8 @@ fn policy_projection(request: &ExecutionRequest) -> Value {
     let ExecutionRequest {
         #[cfg(unix)]
         inherited_fds,
+        #[cfg(windows)]
+        inherited_handles,
         // External contract provenance is diagnostics/telemetry attribution,
         // not enforcement.
         source_contract: _excluded_source_contract,
@@ -251,6 +253,13 @@ fn policy_projection(request: &ExecutionRequest) -> Value {
         root.insert(
             "inheritedDescriptorCount".into(),
             inherited_fds.len().into(),
+        );
+    }
+    #[cfg(windows)]
+    if !inherited_handles.is_empty() {
+        root.insert(
+            "inheritedHandleCount".into(),
+            inherited_handles.len().into(),
         );
     }
 

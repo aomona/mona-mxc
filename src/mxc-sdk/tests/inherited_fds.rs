@@ -2,7 +2,7 @@
 
 #![cfg(unix)]
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 use std::os::fd::OwnedFd;
 use std::os::unix::net::UnixStream;
 use std::sync::Arc;
@@ -13,7 +13,7 @@ use mxc_sdk::v1::{spawn_with_inherited_fds, ContainerRequest, Containment, Error
 fn unsupported_backend_rejects_inherited_capabilities_before_spawning() {
     let (socket, _peer) = UnixStream::pair().unwrap();
     let request = ContainerRequest {
-        containment: Containment::Bubblewrap,
+        containment: Containment::Lxc(Default::default()),
         ..ContainerRequest::new("exit 0")
     };
     let error =
@@ -23,8 +23,8 @@ fn unsupported_backend_rejects_inherited_capabilities_before_spawning() {
     assert_eq!(error.code, ErrorCode::UnsupportedContainment);
 }
 
-#[cfg(target_os = "macos")]
-mod seatbelt {
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod native {
     use super::*;
     use std::io::{Read, Write};
     use std::os::fd::AsRawFd;
@@ -50,6 +50,28 @@ mod seatbelt {
         flags
     }
 
+    fn ipc_command(input: i32, output: i32, unselected: i32) -> String {
+        if cfg!(target_os = "linux") {
+            format!(
+                "python3 -c 'import os\ntry: os.write({unselected}, b\"leaked\")\nexcept OSError: pass\nmessage = os.fdopen({input}).readline().strip()\nos.write({output}, (\"reply:\" + message + \"\\n\").encode())'"
+            )
+        } else {
+            format!(
+                "(printf leaked >&{unselected}) 2>/dev/null || true; IFS= read -r message <&{input}; printf 'reply:%s\\n' \"$message\" >&{output}"
+            )
+        }
+    }
+
+    fn probe_command(fd: i32) -> String {
+        if cfg!(target_os = "linux") {
+            format!(
+                "python3 -c 'import os\ntry: os.write({fd}, b\"leaked\")\nexcept OSError: pass'"
+            )
+        } else {
+            format!("(printf leaked >&{fd}) 2>/dev/null || true")
+        }
+    }
+
     #[test]
     fn only_selected_channels_reach_the_sandbox_and_parent_flags_stay_unchanged() {
         let (mut input, child_input) = UnixStream::pair().unwrap();
@@ -66,14 +88,10 @@ mod seatbelt {
         assert_ne!(before.0 & libc::FD_CLOEXEC, 0);
         assert_ne!(before.1 & libc::FD_CLOEXEC, 0);
         assert_ne!(before.2 & libc::FD_CLOEXEC, 0);
-        let check_unselected = format!(
-            "(printf leaked >&{}) 2>/dev/null || true",
-            unselected.as_raw_fd()
-        );
-        let script = format!(
-            "{check_unselected}; IFS= read -r message <&{}; printf 'reply:%s\\n' \"$message\" >&{}",
+        let script = ipc_command(
             child_input.as_raw_fd(),
             child_output.as_raw_fd(),
+            unselected.as_raw_fd(),
         );
         let mut process = spawn_with_inherited_fds(
             request(&script),
@@ -86,10 +104,7 @@ mod seatbelt {
         assert_eq!(flags(&unselected), before.2);
         // A separate spawn must not inherit channels used by the prepared child.
         let mut unrelated = spawn(
-            request(&format!(
-                "(printf leaked >&{}) 2>/dev/null || true",
-                child_output.as_raw_fd()
-            )),
+            request(&probe_command(child_output.as_raw_fd())),
             Default::default(),
         )
         .unwrap();
@@ -146,12 +161,16 @@ mod seatbelt {
         host.set_read_timeout(Some(Duration::from_secs(10)))
             .unwrap();
         let socket: Arc<OwnedFd> = Arc::new(socket.into());
+        let fd = socket.as_raw_fd();
+        let script = if cfg!(target_os = "linux") {
+            format!(
+                "python3 -c 'import os; os.write({fd}, b\"ready\"); os.fdopen({fd}).readline()'"
+            )
+        } else {
+            format!("printf ready >&{fd}; IFS= read -r done <&{fd}")
+        };
         let mut process = spawn_with_inherited_fds(
-            request(&format!(
-                "printf ready >&{}; IFS= read -r done <&{}",
-                socket.as_raw_fd(),
-                socket.as_raw_fd(),
-            )),
+            request(&script),
             Default::default(),
             vec![Arc::clone(&lock), socket],
         )
@@ -196,7 +215,7 @@ mod seatbelt {
             let status = std::process::Command::new(std::env::current_exe().unwrap())
                 .args([
                     "--exact",
-                    "seatbelt::descriptors_without_close_on_exec_are_rejected_without_changing_flags",
+                    "native::descriptors_without_close_on_exec_are_rejected_without_changing_flags",
                     "--test-threads=1",
                 ])
                 .env(ISOLATED, "1")

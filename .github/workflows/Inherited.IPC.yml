@@ -1,0 +1,60 @@
+name: Inherited IPC
+
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - '.github/workflows/Inherited.IPC.yml'
+  push:
+    branches: [codex/inherited-ipc]
+    paths:
+      - 'src/**'
+      - '.github/workflows/Inherited.IPC.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inherited-ipc:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: src
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rust toolchain
+        run: rustup toolchain install 1.93 --profile minimal --component clippy,rustfmt
+      - name: Prepare Linux sandbox
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap python3
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Prepare Windows sandbox
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cargo +1.93 build -p wxc-host-prep --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & ./target/debug/wxc-host-prep.exe prepare-system-drive
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & ./target/debug/wxc-host-prep.exe prepare-null-device --no-sacl
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Check formatting
+        run: cargo +1.93 fmt --all --check
+      - name: Check SDK
+        run: cargo +1.93 clippy -p mxc-sdk --all-targets --locked -- -D warnings
+      - name: Test inherited capabilities
+        run: cargo +1.93 test -p mxc-sdk --test inherited_fds --test inherited_handles --locked
+      - name: Test Unix capability identity
+        if: runner.os != 'Windows'
+        run: cargo +1.93 test -p mxc-sdk --lib inherited_fds:: --locked
+      - name: Test Windows sandbox IPC and lock
+        if: runner.os == 'Windows'
+        run: cargo +1.93 test -p mxc-sdk --test inherited_handles --locked -- --ignored --test-threads=1 --nocapture
