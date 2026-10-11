@@ -54,7 +54,7 @@ jobs:
         run: cargo +1.93 test -p mxc-sdk --test inherited_fds --test inherited_handles --locked
       - name: Test Unix capability identity
         if: runner.os != 'Windows'
-        run: cargo +1.93 test -p mxc-sdk --lib inherited_fds:: --locked
+        run: 'cargo +1.93 test -p mxc-sdk --lib inherited_fds:: --locked'
       - name: Test Windows sandbox IPC and lock
         if: runner.os == 'Windows'
         run: cargo +1.93 test -p mxc-sdk --test inherited_handles --locked -- --ignored --test-threads=1 --nocapture
