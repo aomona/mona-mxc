@@ -860,11 +860,17 @@ impl BaseContainerRunner {
         }
 
         pi = unsafe { std::mem::zeroed() };
-        let inherited_handles = if pipe_mode {
+        let mut inherited_handles = if pipe_mode {
             vec![h_stdin, h_stdout, h_stderr]
         } else {
             Vec::new()
         };
+        inherited_handles.extend(request.inherited_handles.iter().map(|handle| {
+            use std::os::windows::io::AsRawHandle;
+            HANDLE(handle.as_raw_handle())
+        }));
+        inherited_handles.sort_unstable_by_key(|handle| handle.0 as usize);
+        inherited_handles.dedup();
         let environment_handle = capture_session
             .as_ref()
             .map(|session| session.environment())

@@ -551,6 +551,7 @@ impl BubblewrapScriptRunner {
         if let Some(startup) = network_startup.as_ref() {
             startup.prepare_command(&mut command);
         }
+        crate::inherited_fds::configure(&mut command, &request.inherited_fds);
 
         let mut child = match command.spawn() {
             Ok(process) => process,
